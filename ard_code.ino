@@ -7,12 +7,24 @@ static const int thresholds[] = {1, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 150
 #define PIN_CNT 17
 void setup()
 {
-  PORTB = 12;
   for (byte i = 0; i <= PIN_CNT; i++)
   {
     pinMode(pins[i], OUTPUT);
   }
-  Serial.begin(115200);
+#define FASTADC 1
+#ifndef cbi
+#define cbi(sfr, bit) (_SFR_BYTE(sfr) &= ~_BV(bit))
+#endif
+#ifndef sbi
+#define sbi(sfr, bit) (_SFR_BYTE(sfr) |= _BV(bit))
+#endif
+#if FASTADC
+  // set prescale to 16
+  sbi(ADCSRA, ADPS2);
+  cbi(ADCSRA, ADPS1);
+  cbi(ADCSRA, ADPS0);
+#endif
+  //Serial.begin(115200);
 }
 
 static unsigned long a = 0;
@@ -25,7 +37,11 @@ void loop()
   // digitalWrite(LED_BUILTIN, LOW);  // turn the LED off by making the voltage LOW
   //delay(500); // wait for a second
 
-  sample = analogRead(A6); ///100us per read
+  digitalWrite(A5, time_toggle);
+  time_toggle = !time_toggle;
+  //~120us per read, standard setup
+  //~34us per read, FASTADC=1
+  sample = analogRead(A6);
 
   digitalWrite(A5, time_toggle);
   time_toggle = !time_toggle;
@@ -40,8 +56,6 @@ void loop()
   //a=convert(sample);//50-100us
   a = convert2(sample); //20-40us
 
-  digitalWrite(A5, time_toggle);
-  time_toggle = !time_toggle;
   // //test all
   //   for (byte i = 0; i < PIN_CNT; i++)
   //   {
