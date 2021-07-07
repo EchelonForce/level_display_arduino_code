@@ -1,11 +1,11 @@
 
-static byte pins[] = {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, A0, A1, A2, A3, A4, A5};
+static byte pins[] = {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, A0, A1, A2, A3, A4}; //, A5};
 static const int thresholds[] = {1, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 150, 200, 300, 500, 600, 700, 900};
 
-#define PIN_CNT 18
+#define PIN_CNT 17
 void setup()
 {
-  for (byte i = 0; i < PIN_CNT; i++)
+  for (byte i = 0; i <= PIN_CNT; i++)
   {
     pinMode(pins[i], OUTPUT);
   }
@@ -13,6 +13,7 @@ void setup()
 }
 
 static unsigned long a = 0;
+static byte time_toggle = HIGH;
 void loop()
 {
   // digitalWrite(LED_BUILTIN, HIGH); // turn the LED on (HIGH is the voltage level)
@@ -31,7 +32,6 @@ void loop()
     a = 512 - a;
   }
 
-  Serial.println(a, DEC);
   a = convert(a);
 
   // //test all
@@ -52,6 +52,8 @@ void loop()
   // {
   //   a = a << 1;
   // }
+  digitalWrite(A5, time_toggle);
+  time_toggle = !time_toggle;
 }
 
 long convert(long a)
