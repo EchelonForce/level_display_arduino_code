@@ -29,15 +29,30 @@ static unsigned long a = 0;
 static byte time_toggle = HIGH;
 static unsigned int sample = 0;
 static unsigned int peak = 0;
+static unsigned int sample_peaks = 0;
+static int t_last = 0;
+
 void loop()
 {
   digitalWrite(A5, time_toggle);
   time_toggle = !time_toggle;
 
   sample = abs(analogRead(A6) - 512);
-  peak = peak_check(sample, peak);
-  a = convert(sample, peak);
-  display_val(a); //30us
+
+  digitalWrite(A5, time_toggle);
+  time_toggle = !time_toggle;
+
+  sample_peaks = max(sample, sample_peaks);
+  peak = peak_check(sample_peaks, peak);
+
+  int t_now = millis();
+  if (t_now - t_last > 1000)
+  {
+    t_last = t_now;
+    a = convert(sample_peaks, peak);
+    display_val(a); //30us
+    sample_peaks = 0;
+  }
 }
 
 static byte skips = 0;
