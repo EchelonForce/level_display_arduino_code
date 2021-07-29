@@ -14,7 +14,7 @@
 
 void setup()
 {
-  static const byte pins[] = {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, A0, A1, A2, A3, A5}; // A5 for timing see below
+  static const uint8_t pins[] = {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, A0, A1, A2, A3, A5}; // A5 for timing see below
   //PD2,PD3,PD4,PD5,PD6,PD7,  PB0,PB1,PB2,PB3,PB4,PB5  PC0,PC1,PC2,PC3,  PC5
 
   for (byte i = 0; i <= PIN_CNT; i++)
@@ -52,8 +52,8 @@ void adc_setup(void)
 }
 
 //These vars used in ADC ISR and loop().
-static byte latest_sample = 0;
-static byte numSamples = 0;
+static uint8_t latest_sample = 0;
+static uint8_t numSamples = 0;
 /**
  * Interrupt handler for the ADC.
  */
@@ -71,21 +71,23 @@ ISR(ADC_vect)
   numSamples++;
 }
 
-static unsigned int peak = 0;
-static unsigned int max_sample_between_led_updates = 0;
-static int t_last_led_update = 0;
+static uint8_t peak = 0;
+static uint8_t max_sample_between_led_updates = 0;
+static unsigned long t_last_led_update = 0;
 void loop()
 {
   if (numSamples > 0)
   {
+    noInterrupts();
     numSamples = 0;
     int sample = latest_sample;
+    interrupts();
     sample = abs(sample - 127);
     max_sample_between_led_updates = max(sample, max_sample_between_led_updates);
     peak = peak_update(max_sample_between_led_updates, peak);
 
     //update the leds
-    int t_now = millis();
+    unsigned long t_now = millis();
     if (t_now - t_last_led_update >= LED_UPDATE_PERIOD)
     {
       t_last_led_update = t_now;
@@ -98,13 +100,13 @@ void loop()
   }
 }
 
-static int peak_update_skips = 0;
+static unsigned int peak_update_skips = 0;
 /**
  * Increases the peak if sample is larger than the current peak. Reduces peak by 1 if the
  * sample has been lower than the peak for SAMPLES_PER_PEAK_DECREMENT samples
  * (if peak hasn't changed).
  */
-int peak_update(int sample, int peak) //2us
+uint8_t peak_update(uint8_t sample, uint8_t peak) //2us
 {
   if (sample >= peak)
   {
@@ -127,7 +129,7 @@ int peak_update(int sample, int peak) //2us
  * Convert the latest sample and peak into a 16bit value that is later used to update LEDs.
  * Uses two look up tables that coorespond to thresholds of dB see lut_gen.py
  */
-uint16_t convert(int sample, int peak) //3us w/o reverse, 8us w/ reverse
+uint16_t convert(uint8_t sample, uint8_t peak) //3us w/o reverse, 8us w/ reverse
 {
   static const uint16_t lookup_sample[] = {
       0, 0, 0, 0, 0,                                                                                                                                                          // 0-4
@@ -203,8 +205,8 @@ void display_val(uint16_t a) //4us
  */
 void led_test(void)
 {
-  int thresholds[] = {5, 6, 7, 9, 11, 13, 17, 21, 26, 33, 41, 51, 65, 81, 102, 115};
-  //                -30,-28,-26,-24,-22,-20,-18,-16,-14,-12,-10,-8,-6, -4, -2, -1 dB  | 127=0dB
+  uint8_t thresholds[] = {5, 6, 7, 9, 11, 13, 17, 21, 26, 33, 41, 51, 65, 81, 102, 115};
+  //                     -30,-28,-26,-24,-22,-20,-18,-16,-14,-12,-10,-8,-6, -4, -2, -1 dB  | 127=0dB
 
   //test all the thresholds
   int a = 0;
