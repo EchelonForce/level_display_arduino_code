@@ -3,7 +3,7 @@
 // Change this to speed up/slow down the initialization tests.
 #define TIME_BETWEEN_TEST_STEPS 100
 // Change this to 1 if the display is upside down, otherwise set to 0.
-#define UPSIDE_DOWN 1
+#define UPSIDE_DOWN 0
 //Time between LED updates, samples are still gathered [ms]
 #define LED_UPDATE_PERIOD 1
 // How many samples to allow before decreasing the saved peak value. Decrease for faster peak update.
