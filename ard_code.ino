@@ -12,6 +12,19 @@
 // Number of digitial pins connected to LEDs. Rework required if changed.
 #define PIN_CNT 16
 
+// Note periods in us       C, C#, D, D#, E, F, F#, G, G#, A, A#, B
+static uint16_t notes2[] = {61152, 57728, 54480, 51424, 48544, 45808, 43248, 40816, 38528, 36368, 34320, 32400,
+                            30576, 28864, 27240, 25712, 24272, 22904, 21624, 20408, 19264, 18184, 17160, 16200,
+                            15288, 14432, 13620, 12856, 12136, 11452, 10812, 10204, 9632, 9092, 8580, 8100,
+                            7644, 7216, 6810, 6428, 6068, 5726, 5406, 5102, 4816, 4546, 4290, 4050,
+                            3822, 3608, 3405, 3214, 3034, 2863, 2703, 2551, 2408, 2273, 2145, 2025,
+                            1911, 1804, 1703, 1607, 1517, 1432, 1351, 1276, 1204, 1136, 1073, 1012,
+                            956, 902, 851, 804, 758, 716, 676, 638, 602, 568, 536, 506,
+                            478, 451, 426, 402, 379, 358, 338, 319, 301, 284, 268, 253,
+                            239, 225, 213, 201, 190, 179, 169, 159, 150, 142, 134, 127};
+
+#define NUM_NOTES 108
+
 uint8_t find_nearest_note(unsigned long period);
 void display_val(uint16_t a);
 void led_test(void);
@@ -128,24 +141,32 @@ void loop()
       unsigned long period = (unsigned long)crossing - (unsigned long)last_crossing;
 
       uint8_t idx = find_nearest_note(period);
-      uint16_t a = (uint16_t)1 << (idx % 12);
+      uint16_t precision = get_precision(period, idx);
+      uint16_t a = (uint16_t)1 << (idx % 12) | precision << 12;
+
       display_val(a);
       last_crossing = crossing;
     }
   }
 }
-//                          C, C#, D, D#, E, F, F#, G, G#, A, A#, B
-static uint16_t notes2[] = {61152, 57728, 54480, 51424, 48544, 45808, 43248, 40816, 38528, 36368, 34320, 32400,
-                            30576, 28864, 27240, 25712, 24272, 22904, 21624, 20408, 19264, 18184, 17160, 16200,
-                            15288, 14432, 13620, 12856, 12136, 11452, 10812, 10204, 9632, 9092, 8580, 8100,
-                            7644, 7216, 6810, 6428, 6068, 5726, 5406, 5102, 4816, 4546, 4290, 4050,
-                            3822, 3608, 3405, 3214, 3034, 2863, 2703, 2551, 2408, 2273, 2145, 2025,
-                            1911, 1804, 1703, 1607, 1517, 1432, 1351, 1276, 1204, 1136, 1073, 1012,
-                            956, 902, 851, 804, 758, 716, 676, 638, 602, 568, 536, 506,
-                            478, 451, 426, 402, 379, 358, 338, 319, 301, 284, 268, 253,
-                            239, 225, 213, 201, 190, 179, 169, 159, 150, 142, 134, 127};
 
-#define NUM_NOTES 108
+uint8_t get_precision(unsigned long period, uint8_t idx)
+{
+  unsigned long diff = (period > notes2[idx]) ? period - notes2[idx] : notes2[idx] - period;
+  diff = diff / max(1, (notes2[idx] / 200)); // divide ideal period by 200 to get 0.5% of the period's precision so diff is now in 'half-cent's
+  uint8_t out = (1 << min(4, diff)) - 1;     // 4 leds, so clamp the output and light them up like a scale.
+  // Serial.print(period);
+  // Serial.print(",");
+  // Serial.print(idx);
+  // Serial.print(",");
+  // Serial.print(notes2[idx]);
+  // Serial.print(",");
+  // Serial.print(diff);
+  // Serial.print(",");
+  // Serial.println(out, HEX);
+  return out;
+}
+
 uint8_t find_nearest_note(unsigned long period)
 {
   uint8_t i;
