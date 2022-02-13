@@ -12,6 +12,10 @@
 // Number of digitial pins connected to LEDs. Rework required if changed.
 #define PIN_CNT 16
 
+uint8_t find_nearest_note(unsigned long period);
+void display_val(uint16_t a);
+void led_test(void);
+
 void setup()
 {
   static const uint8_t pins[] = {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, A0, A1, A2, A3, A5}; // A5 for timing see below
@@ -52,17 +56,17 @@ void adc_setup(void)
 }
 
 // These vars used in ADC ISR and loop().
-static uint8_t latest_sample = 0;
-static uint8_t numSamples = 0;
+static volatile uint16_t latest_sample = 0;
+static volatile uint8_t numSamples = 0;
 /**
  * Interrupt handler for the ADC.
  */
 ISR(ADC_vect)
 {
-  ADMUX = ADMUX ^ 0x01; // swap channels 6/7 every time, seems to limit signal for some reason
+  // ADMUX = ADMUX ^ 0x01; //swap channels 6/7 every time, seems to limit signal for some reason
   if (numSamples > 0)
   {
-    latest_sample = max(latest_sample, ADCH); // read 8 bit value from ADC
+    latest_sample += ADCH; // read 8 bit value from ADC
   }
   else
   {
@@ -74,113 +78,113 @@ ISR(ADC_vect)
 static uint8_t peak = 0;
 static uint8_t max_sample_between_led_updates = 0;
 static unsigned long t_last_led_update = 0;
+unsigned long last_crossing = 0;
+unsigned long crossing = 0;
+boolean going_up = true;
+int last_sample = 0;
+int sample = 0;
+uint8_t latest_sample_cnt;
+bool last_was_crossing = false;
+
+int temp = 0;
 void loop()
 {
   if (numSamples > 0)
   {
     noInterrupts();
+    latest_sample_cnt = numSamples;
     numSamples = 0;
-    int sample = latest_sample;
+    sample = latest_sample;
     interrupts();
-    sample = abs(sample - 127);
-    max_sample_between_led_updates = max(sample, max_sample_between_led_updates);
-    peak = peak_update(max_sample_between_led_updates, peak);
+    sample = (sample / latest_sample_cnt) - 127;
 
-    // update the leds
-    unsigned long t_now = millis();
-    if (t_now - t_last_led_update >= LED_UPDATE_PERIOD)
+    if (sample < last_sample)
     {
-      t_last_led_update = t_now;
-      // PORTC = (PORTC | 0x20); //timing
-      unsigned long a = convert(max_sample_between_led_updates, peak);
-      // PORTC = (PORTC ^ 0x20); //timing
+      going_up = false;
+    }
+    else if (sample > last_sample)
+    {
+      going_up = true;
+    }
+
+    if (going_up)
+    {
+      // issues here with low frequencies because of high frequency noise.
+      if (last_sample <= 0 && sample >= 0 && last_sample != sample && !last_was_crossing)
+      {
+        last_was_crossing = true;
+        crossing = micros();
+      }
+      else
+      {
+        last_was_crossing = false;
+      }
+    }
+
+    last_sample = sample;
+
+    if (crossing != last_crossing)
+    {
+      unsigned long period = (unsigned long)crossing - (unsigned long)last_crossing;
+
+      uint8_t idx = find_nearest_note(period);
+      uint16_t a = (uint16_t)1 << (idx % 12);
       display_val(a);
-      max_sample_between_led_updates = 0;
+      last_crossing = crossing;
     }
   }
 }
+//                          C, C#, D, D#, E, F, F#, G, G#, A, A#, B
+static uint16_t notes2[] = {61152, 57728, 54480, 51424, 48544, 45808, 43248, 40816, 38528, 36368, 34320, 32400,
+                            30576, 28864, 27240, 25712, 24272, 22904, 21624, 20408, 19264, 18184, 17160, 16200,
+                            15288, 14432, 13620, 12856, 12136, 11452, 10812, 10204, 9632, 9092, 8580, 8100,
+                            7644, 7216, 6810, 6428, 6068, 5726, 5406, 5102, 4816, 4546, 4290, 4050,
+                            3822, 3608, 3405, 3214, 3034, 2863, 2703, 2551, 2408, 2273, 2145, 2025,
+                            1911, 1804, 1703, 1607, 1517, 1432, 1351, 1276, 1204, 1136, 1073, 1012,
+                            956, 902, 851, 804, 758, 716, 676, 638, 602, 568, 536, 506,
+                            478, 451, 426, 402, 379, 358, 338, 319, 301, 284, 268, 253,
+                            239, 225, 213, 201, 190, 179, 169, 159, 150, 142, 134, 127};
 
-static unsigned int peak_update_skips = 0;
-/**
- * Increases the peak if sample is larger than the current peak. Reduces peak by 1 if the
- * sample has been lower than the peak for SAMPLES_PER_PEAK_DECREMENT samples
- * (if peak hasn't changed).
- */
-uint8_t peak_update(uint8_t sample, uint8_t peak) // 2us
+#define NUM_NOTES 108
+uint8_t find_nearest_note(unsigned long period)
 {
-  if (sample >= peak)
+  uint8_t i;
+  if (period >= notes2[0])
   {
-    peak_update_skips = 0;
-    return sample;
+    return 0;
   }
-  else if (peak_update_skips == SAMPLES_PER_PEAK_DECREMENT) // tweak to make the peak last longer.
+  if (period <= notes2[NUM_NOTES - 1])
   {
-    peak_update_skips = 0;
-    return peak - 1;
+    return NUM_NOTES - 1;
   }
-  else
+  for (i = 1; i < NUM_NOTES; i++)
   {
-    peak_update_skips++;
-    return peak;
+    if (period == notes2[i])
+    {
+      return i;
+    }
+    if (period > notes2[i])
+    {
+      // was between i-1 and i
+      if ((period - notes2[i]) <= (notes2[i - 1] - period))
+      {
+        return i;
+      }
+      else
+      {
+        return i - 1;
+      }
+    }
   }
-}
-
-/**
- * Convert the latest sample and peak into a 16bit value that is later used to update LEDs.
- * Uses two look up tables that coorespond to thresholds of dB see lut_gen.py
- */
-uint16_t convert(uint8_t sample, uint8_t peak) // 3us w/o reverse, 8us w/ reverse
-{
-  static const uint16_t lookup_sample[] = {
-      0, 0, 0, 0, 0,                                                                                                                                                          // 0-4
-      0x1,                                                                                                                                                                    // 5-5
-      0x3,                                                                                                                                                                    // 6-6
-      0x7, 0x7,                                                                                                                                                               // 7-8
-      0xf, 0xf,                                                                                                                                                               // 9-10
-      0x1f, 0x1f,                                                                                                                                                             // 11-12
-      0x3f, 0x3f, 0x3f, 0x3f,                                                                                                                                                 // 13-16
-      0x7f, 0x7f, 0x7f, 0x7f,                                                                                                                                                 // 17-20
-      0xff, 0xff, 0xff, 0xff, 0xff,                                                                                                                                           // 21-25
-      0x1ff, 0x1ff, 0x1ff, 0x1ff, 0x1ff, 0x1ff, 0x1ff,                                                                                                                        // 26-32
-      0x3ff, 0x3ff, 0x3ff, 0x3ff, 0x3ff, 0x3ff, 0x3ff, 0x3ff,                                                                                                                 // 33-40
-      0x7ff, 0x7ff, 0x7ff, 0x7ff, 0x7ff, 0x7ff, 0x7ff, 0x7ff, 0x7ff, 0x7ff,                                                                                                   // 41-50
-      0xfff, 0xfff, 0xfff, 0xfff, 0xfff, 0xfff, 0xfff, 0xfff, 0xfff, 0xfff, 0xfff, 0xfff, 0xfff, 0xfff,                                                                       // 51-64
-      0x1fff, 0x1fff, 0x1fff, 0x1fff, 0x1fff, 0x1fff, 0x1fff, 0x1fff, 0x1fff, 0x1fff, 0x1fff, 0x1fff, 0x1fff, 0x1fff, 0x1fff, 0x1fff,                                         // 65-80
-      0x3fff, 0x3fff, 0x3fff, 0x3fff, 0x3fff, 0x3fff, 0x3fff, 0x3fff, 0x3fff, 0x3fff, 0x3fff, 0x3fff, 0x3fff, 0x3fff, 0x3fff, 0x3fff, 0x3fff, 0x3fff, 0x3fff, 0x3fff, 0x3fff, // 81-101
-      0x7fff, 0x7fff, 0x7fff, 0x7fff, 0x7fff, 0x7fff, 0x7fff, 0x7fff, 0x7fff, 0x7fff, 0x7fff, 0x7fff, 0x7fff,                                                                 // 102-114
-      0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff                                                                  // 115-126
-  };
-  static const uint16_t lookup_peak[] = {
-      0, 0, 0, 0, 0,                                                                                                                                                          // 0-4
-      0x1,                                                                                                                                                                    // 5-5
-      0x2,                                                                                                                                                                    // 6-6
-      0x4, 0x4,                                                                                                                                                               // 7-8
-      0x8, 0x8,                                                                                                                                                               // 9-10
-      0x10, 0x10,                                                                                                                                                             // 11-12
-      0x20, 0x20, 0x20, 0x20,                                                                                                                                                 // 13-16
-      0x40, 0x40, 0x40, 0x40,                                                                                                                                                 // 17-20
-      0x80, 0x80, 0x80, 0x80, 0x80,                                                                                                                                           // 21-25
-      0x100, 0x100, 0x100, 0x100, 0x100, 0x100, 0x100,                                                                                                                        // 26-32
-      0x200, 0x200, 0x200, 0x200, 0x200, 0x200, 0x200, 0x200,                                                                                                                 // 33-40
-      0x400, 0x400, 0x400, 0x400, 0x400, 0x400, 0x400, 0x400, 0x400, 0x400,                                                                                                   // 41-50
-      0x800, 0x800, 0x800, 0x800, 0x800, 0x800, 0x800, 0x800, 0x800, 0x800, 0x800, 0x800, 0x800, 0x800,                                                                       // 51-64
-      0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000,                                         // 65-80
-      0x2000, 0x2000, 0x2000, 0x2000, 0x2000, 0x2000, 0x2000, 0x2000, 0x2000, 0x2000, 0x2000, 0x2000, 0x2000, 0x2000, 0x2000, 0x2000, 0x2000, 0x2000, 0x2000, 0x2000, 0x2000, // 81-101
-      0x4000, 0x4000, 0x4000, 0x4000, 0x4000, 0x4000, 0x4000, 0x4000, 0x4000, 0x4000, 0x4000, 0x4000, 0x4000,                                                                 // 102-114
-      0x8000, 0x8000, 0x8000, 0x8000, 0x8000, 0x8000, 0x8000, 0x8000, 0x8000, 0x8000, 0x8000, 0x8000, 0x8000                                                                  // 115-126
-  };
-#if UPSIDE_DOWN == 0
-  return lookup_sample[min(127, sample)] | lookup_peak[min(127, peak)];
-#else
-  return reverse_bits(lookup_sample[min(127, sample)] | lookup_peak[min(127, peak)]);
-#endif
+  return i;
 }
 
 #if UPSIDE_DOWN != 0
 /**
  * Reverses a 16 bit value's bits.
  */
-uint16_t reverse_bits(uint16_t b) // 5us
+uint16_t
+reverse_bits(uint16_t b) // 5us
 {
   b = ((b & 0x5555) << 1) | ((b & 0xAAAA) >> 1);
   b = ((b & 0x3333) << 2) | ((b & 0xCCCC) >> 2);
@@ -205,22 +209,13 @@ void display_val(uint16_t a) // 4us
  */
 void led_test(void)
 {
-  uint8_t thresholds[] = {5, 6, 7, 9, 11, 13, 17, 21, 26, 33, 41, 51, 65, 81, 102, 115};
-  //                     -30,-28,-26,-24,-22,-20,-18,-16,-14,-12,-10,-8,-6, -4, -2, -1 dB  | 127=0dB
-
-  // test all the thresholds
+  // test forward
   int a = 0;
-  for (int8_t i = 0; i < PIN_CNT; i++)
-  {
-    a = convert(thresholds[i], thresholds[i]);
-    display_val(a);
-    delay(TIME_BETWEEN_TEST_STEPS);
-  }
 
-  // test peaks in reverse
+  // test leds
   for (int8_t i = PIN_CNT - 1; i >= 0; i--)
   {
-    a = convert(0, thresholds[i]);
+    a = (uint16_t)1 << i;
     display_val(a);
     delay(TIME_BETWEEN_TEST_STEPS);
   }
@@ -234,4 +229,56 @@ void led_test(void)
   a = 0;
   display_val(a);
   delay(TIME_BETWEEN_TEST_STEPS);
+
+  test(0, find_nearest_note(61151), "idx=0,period=61151");
+  test(0, find_nearest_note(61152), "idx=0,period=61152");
+  test(0, find_nearest_note(61153), "idx=0,period=61153");
+  test(NUM_NOTES - 1, find_nearest_note(127), "idx=NUM_NOTES-1");
+  test(NUM_NOTES - 1, find_nearest_note(126), "idx=NUM_NOTES-1,period=126");
+  test(NUM_NOTES - 1, find_nearest_note(128), "idx=NUM_NOTES-1,period=128");
+  test(1, find_nearest_note(57728), "idx=1,period=57728");
+  test(1, find_nearest_note(57727), "idx=1,period=57727");
+  test(1, find_nearest_note(57729), "idx=1,period=57729");
+  test(NUM_NOTES - 2, find_nearest_note(133), "idx=NUM_NOTES-2,period=133");
+  test(NUM_NOTES - 2, find_nearest_note(134), "idx=NUM_NOTES-2,period=134");
+  test(NUM_NOTES - 2, find_nearest_note(135), "idx=NUM_NOTES-2,period=135");
+  test(11, find_nearest_note(32399), "idx=11,period=32399");
+  test(11, find_nearest_note(32400), "idx=11,period=32400");
+  test(11, find_nearest_note(32401), "idx=11,period=32401");
+}
+
+//                          C, C#, D, D#, E, F, F#, G, G#, A, A#, B
+// static uint16_t notes2[] = {61152, 57728, 54480, 51424, 48544, 45808, 43248, 40816, 38528, 36368, 34320, 32400,
+//                             30576, 28864, 27240, 25712, 24272, 22904, 21624, 20408, 19264, 18184, 17160, 16200,
+//                             15288, 14432, 13620, 12856, 12136, 11452, 10812, 10204, 9632, 9092, 8580, 8100,
+//                             7644, 7216, 6810, 6428, 6068, 5726, 5406, 5102, 4816, 4546, 4290, 4050,
+//                             3822, 3608, 3405, 3214, 3034, 2863, 2703, 2551, 2408, 2273, 2145, 2025,
+//                             1911, 1804, 1703, 1607, 1517, 1432, 1351, 1276, 1204, 1136, 1073, 1012,
+//                             956, 902, 851, 804, 758, 716, 676, 638, 602, 568, 536, 506,
+//                             478, 451, 426, 402, 379, 358, 338, 319, 301, 284, 268, 253,
+//                             239, 225, 213, 201, 190, 179, 169, 159, 150, 142, 134, 127};
+
+// #define NUM_NOTES 108
+// uint8_t find_nearest_note(uint16_t period)
+
+void test(int actual, int expected, const char *const test_name)
+{
+  if (actual != expected)
+  {
+    while (true)
+    {
+      Serial.print(test_name);
+      Serial.print(": FAILED : ");
+      Serial.print(actual);
+      Serial.print("!=");
+      Serial.print(expected);
+      Serial.println("");
+      delay(2000);
+    }
+  }
+  else
+  {
+    Serial.print(test_name);
+    Serial.println(": PASSED");
+  }
 }
